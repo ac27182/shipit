@@ -12,7 +12,7 @@
   <div class="panel panel-default">
     <div class="panel-heading">Filters <button class="btn btn-primary" type="button" data-toggle="collapse" data-target="#filters" aria-expanded="false" aria-controls="filters">Toggle</button></div>
     <div class="panel-body collapse" id="filters">
-      <form method="get" action="@routes.DeploymentsController.search(None, None, None)" class="form form-horizontal">
+      <form method="get" action="@routes.DeploymentsController.search(SearchFilters.empty)" class="form form-horizontal">
         <div class="form-group">
           <label class="col-sm-2 control-label" for="team">Team</label>
           <div class="col-sm-4">
@@ -75,12 +75,12 @@
 
   <ul class="pager">
     @if(page.pageNumber > 1) {
-      <li><a href="@routes.DeploymentsController.search(filters.team, filters.service, filters.buildId)">Latest</a></li>
-      <li><a href="@routes.DeploymentsController.search(filters.team, filters.service, filters.buildId, page.pageNumber - 1)">&larr; Newer</a></li>
+      <li><a href="@routes.DeploymentsController.search(filters)">Latest</a></li>
+      <li><a href="@routes.DeploymentsController.search(filters, page.pageNumber - 1)">&larr; Newer</a></li>
     }
     @if(page.pageNumber < page.lastPage) {
-      <li><a href="@routes.DeploymentsController.search(filters.team, filters.service, filters.buildId, page.pageNumber + 1)">Older &rarr;</a></li>
-      <li><a href="@routes.DeploymentsController.search(filters.team, filters.service, filters.buildId, page.lastPage)">Oldest</a></li>
+      <li><a href="@routes.DeploymentsController.search(filters, page.pageNumber + 1)">Older &rarr;</a></li>
+      <li><a href="@routes.DeploymentsController.search(filters, page.lastPage)">Oldest</a></li>
     }
   </ul>
 

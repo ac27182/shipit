@@ -2,24 +2,25 @@ package es
 
 import java.time.{Instant, OffsetDateTime, ZoneOffset}
 
-import io.circe.parser._
-import io.circe.generic.auto._
-import CirceDecoders._
-import cats.syntax.either._
 import cats.data.Reader
+import cats.syntax.either._
 import com.google.gson.JsonElement
-import io.circe.{Encoder, Json}
+import io.circe.generic.auto._
 import io.circe.generic.semiauto.deriveEncoder
+import io.circe.parser._
+import io.circe.syntax._
+import io.circe.{Encoder, Json}
 import io.searchbox.client.JestClient
-import io.searchbox.core.{Delete, Index, Search, Update}
+import io.searchbox.core.search.aggregation.TermsAggregation
 import io.searchbox.core.search.sort.Sort
 import io.searchbox.core.search.sort.Sort.Sorting
-import io.searchbox.indices.{CreateIndex, DeleteIndex, IndicesExists, Refresh}
+import io.searchbox.core._
+import io.searchbox.indices.{CreateIndex, IndicesExists, Refresh}
 import models._
 import org.slf4j.LoggerFactory
-import io.circe.syntax._
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 object ES {
 
@@ -48,6 +49,13 @@ object ES {
       ).asJson
     }
 
+  private def hits(result: SearchResult): List[SearchResult#Hit[JsonElement, Void]] =
+    for {
+      res  <- Option(result).toList
+      hits <- Try(res.getHits(classOf[JsonElement])).toOption.toList
+      hit  <- hits.asScala
+    } yield hit
+
   object Deployments {
 
     def create(deployment: Deployment): Reader[JestClient, Identified[Deployment]] =
@@ -65,7 +73,7 @@ object ES {
              |      "filter": {
              |        "bool": {
              |          "must": ${filters.asJson.noSpaces}
-           |        }
+             |        }
              |      }
              |    }
              |  }
@@ -76,10 +84,7 @@ object ES {
           .addSort(new Sort("timestamp", Sorting.DESC))
           .build()
         val result = jest.execute(action)
-        val items = result
-          .getHits(classOf[JsonElement])
-          .asScala
-          .flatMap(hit => parseHit(hit.source, hit.id))
+        val items  = hits(result).flatMap(hit => parseHit(hit.source, hit.id))
         Page(items, page, result.getTotal.toInt)
       }
 
@@ -128,7 +133,8 @@ object ES {
 
       val result = jest.execute(action)
 
-      val teamBuckets = result.getAggregations.getTermsAggregation("by_team").getBuckets.asScala
+      val teamBuckets: List[TermsAggregation#Entry] =
+        Option(result.getAggregations.getTermsAggregation("by_team")).toList.flatMap(_.getBuckets.asScala)
 
       val services = for {
         team <- teamBuckets
@@ -229,11 +235,7 @@ object ES {
         .addType(Types.ApiKey)
         .build()
       val result = jest.execute(action)
-      result
-        .getHits(classOf[JsonElement])
-        .asScala
-        .flatMap(hit => parseHit(hit.source, hit.id))
-        .headOption
+      hits(result).flatMap(hit => parseHit(hit.source, hit.id)).headOption
     }
 
     def list(page: Int): Reader[JestClient, Page[ApiKey]] = Reader { jest =>
@@ -249,10 +251,7 @@ object ES {
         .addSort(new Sort("createdBy"))
         .build()
       val result = jest.execute(action)
-      val items = result
-        .getHits(classOf[JsonElement])
-        .asScala
-        .flatMap(hit => parseHit(hit.source, hit.id))
+      val items  = hits(result).flatMap(hit => parseHit(hit.source, hit.id))
       Page(items, page, result.getTotal.toInt)
     }
 
@@ -362,7 +361,7 @@ object ES {
            |      "createdAt" : { "type" : "date" },
            |      "createdBy" : { "type" : "keyword" },
            |      "active" : { "type" : "boolean" },
-           |      "lastUsed" : { "type" : "date" },
+           |      "lastUsed" : { "type" : "date" }
            |    }
            |  },
            |  "${Types.Deployment}": {
@@ -370,6 +369,9 @@ object ES {
            |      "team" : { "type" : "keyword" },
            |      "service" : { "type" : "keyword" },
            |      "buildId" : { "type" : "keyword" },
+           |      "environment" : { "type" : "keyword" },
+           |      "businessArea" : { "type" : "keyword" },
+           |      "gitSha" : { "type" : "keyword" },
            |      "timestamp" : { "type" : "date" },
            |      "links": {
            |        "properties": {

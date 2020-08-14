@@ -37,19 +37,11 @@ class DeploymentsController(
       Ok(views.html.index())
     }
 
-  def search(team: Option[String], service: Option[String], buildId: Option[String], page: Int): Action[AnyContent] =
+  def search(filters: SearchFilters, page: Int): Action[AnyContent] =
     authAction { implicit request =>
       implicit val user: UserIdentity = request.user
       val showAdminColumn             = ctx.isAdmin(user)
-
-      val filters = SearchFilters(
-        team = team.filter(_.nonEmpty),
-        service = service.filter(_.nonEmpty),
-        buildId = buildId.filter(_.nonEmpty),
-        environment = None,
-        businessArea = None
-      )
-      val searchResult = ES.Deployments.search(filters, page).run(jestClient)
+      val searchResult                = ES.Deployments.search(filters, page).run(jestClient)
       Ok(views.html.deployments.search(searchResult, filters, showAdminColumn))
     }
 
@@ -77,9 +69,9 @@ class DeploymentsController(
                 team = data.team,
                 service = data.service,
                 buildId = data.buildId,
-                environment = None,
-                businessArea = None,
-                gitSha = None,
+                environment = data.environment,
+                businessArea = data.businessArea,
+                gitSha = data.gitSha,
                 timestamp = OffsetDateTime.now(),
                 links = data.links.toList.flatten,
                 note = data.note

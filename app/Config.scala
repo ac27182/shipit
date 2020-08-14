@@ -7,6 +7,7 @@ import ciris.aws.ssm._
 
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
+import Config.ParamOps
 
 case class ESConfig(
     region: String = "eu-west-1",
@@ -16,7 +17,7 @@ case class ESConfig(
 object ESConfig {
 
   def load(param: Param): ConfigValue[ESConfig] = {
-    param("shipit.es.endpointUrl").map(endpointUrl => ESConfig.apply(endpointUrl = endpointUrl))
+    param.envOr("shipit.es.endpointUrl").map(endpointUrl => ESConfig(endpointUrl = endpointUrl))
   }
 
 }
@@ -28,7 +29,7 @@ case class SlackConfig(
 object SlackConfig {
 
   def load(param: Param): ConfigValue[SlackConfig] = {
-    param("shipit.slack.webhookUrl").secret.map(SlackConfig.apply)
+    param.envOr("shipit.slack.webhookUrl").secret.map(SlackConfig.apply)
   }
 
 }
@@ -135,6 +136,11 @@ case class Config(
 )
 
 object Config {
+
+  implicit class ParamOps(p: Param) {
+    def envOr(what: String): ConfigValue[String] =
+      env(what.replaceAll("\\.", "_").toUpperCase).or(p(what))
+  }
 
   implicit val contextShift: ContextShift[IO] = IO.contextShift(ExecutionContext.global)
 
