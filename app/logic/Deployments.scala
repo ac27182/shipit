@@ -1,12 +1,10 @@
 package logic
 
-import java.time.OffsetDateTime
-
 import cats.Id
 import cats.arrow.FunctionK
 import cats.data.Kleisli
-import cats.syntax.option._
 import cats.instances.future._
+import cats.syntax.option._
 import com.gu.googleauth.UserIdentity
 import datadog.Datadog
 import es.ES
@@ -31,17 +29,9 @@ object Deployments {
   )
 
   def createDeployment(
-      team: String,
-      service: String,
-      buildId: String,
-      timestamp: OffsetDateTime,
-      links: Seq[Link],
-      note: Option[String],
+      deployment: Deployment,
       notifySlackChannel: Option[String]
-  ): Kleisli[Future, Context, Deployment] = {
-
-    val deployment = Deployment(team, service, buildId, timestamp, links, note)
-
+  ): Kleisli[Future, Context, Deployment] =
     for {
       _               <- persistToES(deployment)
       slackResp       <- sendMainSlackNotification(deployment)
@@ -58,7 +48,6 @@ object Deployments {
       )
       deployment
     }
-  }
 
   private def persistToES(deployment: Deployment): Kleisli[Future, Context, Identified[Deployment]] =
     ES.Deployments

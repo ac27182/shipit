@@ -52,9 +52,19 @@ object Slack {
       field("Links", value, short = true)
     }
 
-    val notesField = deployment.note.map(note => field("Notes", note, short = false))
+    val notesField        = deployment.note.map(note => field("Notes", note, short = false))
+    val businessAreaField = deployment.businessArea.map(ba => field("Business Area", ba, short = true))
+    val environmentField  = deployment.environment.map(env => field("Environment", env.value, short = true))
+    val gitShaField       = deployment.gitSha.map(sha => field("Git SHA", sha.value, short = true))
 
-    List(Some(buildIdField), Some(linksField), notesField).flatten
+    List(
+      Some(buildIdField),
+      Some(linksField),
+      businessAreaField,
+      environmentField,
+      gitShaField,
+      notesField
+    ).flatten
   }
 
 }

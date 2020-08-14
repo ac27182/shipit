@@ -2,7 +2,7 @@ package slack
 
 import java.time.OffsetDateTime
 
-import models.{Deployment, Link}
+import models.{Deployment, Environment, GitSha, Link}
 import org.scalatest._
 import io.circe.parser._
 import play.api.libs.json.Json
@@ -11,10 +11,13 @@ import org.scalatest.matchers.should.Matchers
 
 class SlackSpec extends AnyFlatSpec with Matchers with OptionValues {
 
-  it should "build a payload for a deployment with a note" in {
+  it should "build a payload for a deployment with a note and optional fields set" in {
     val deployment = Deployment(
       team = "Team America",
       service = "my lovely service",
+      businessArea = Some("OVO Retail"),
+      environment = Some(Environment.Nonprod),
+      gitSha = Some(GitSha("abc123")),
       buildId = "123",
       timestamp = OffsetDateTime.now,
       links = Seq(
@@ -46,6 +49,21 @@ class SlackSpec extends AnyFlatSpec with Matchers with OptionValues {
         |         "short": true
         |       },
         |       {
+        |         "title": "Business Area",
+        |         "value": "OVO Retail",
+        |         "short": true
+        |       },
+        |       {
+        |         "title": "Environment",
+        |         "value": "nonprod",
+        |         "short": true
+        |       },
+        |       {
+        |         "title": "Git SHA",
+        |         "value": "abc123",
+        |         "short": true
+        |       },
+        |       {
         |         "title": "Notes",
         |         "value": "this build was awesome",
         |         "short": false
@@ -65,6 +83,9 @@ class SlackSpec extends AnyFlatSpec with Matchers with OptionValues {
       team = "Team America",
       service = "my lovely service",
       buildId = "123",
+      businessArea = None,
+      environment = None,
+      gitSha = None,
       timestamp = OffsetDateTime.now,
       links = Seq(
         Link("PR", "https://github.com/pr"),

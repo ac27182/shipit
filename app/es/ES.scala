@@ -8,6 +8,8 @@ import CirceDecoders._
 import cats.syntax.either._
 import cats.data.Reader
 import com.google.gson.JsonElement
+import io.circe.{Encoder, Json}
+import io.circe.generic.semiauto.deriveEncoder
 import io.searchbox.client.JestClient
 import io.searchbox.core.{Delete, Index, Search, Update}
 import io.searchbox.core.search.sort.Sort
@@ -15,14 +17,15 @@ import io.searchbox.core.search.sort.Sort.Sorting
 import io.searchbox.indices.{CreateIndex, DeleteIndex, IndicesExists, Refresh}
 import models._
 import org.slf4j.LoggerFactory
+import io.circe.syntax._
 
 import scala.collection.JavaConverters._
 
 object ES {
 
-  private val logger = LoggerFactory.getLogger(getClass)
-
+  private val logger    = LoggerFactory.getLogger(getClass)
   private val IndexName = "shipit_v2"
+
   private object Types {
     val ApiKey     = "apikey"
     val Deployment = "deployment"
@@ -32,56 +35,53 @@ object ES {
   private def pageToOffset(page: Int) = (page - 1) * PageSize
 
   case class Page[A](items: Seq[A], pageNumber: Int, total: Int) {
-
     def lastPage: Int = ((total - 1) / PageSize) + 1
-
   }
+
+  private[es] implicit val encoder: Encoder[SearchFilters] =
+    deriveEncoder[SearchFilters].mapJson { filters =>
+      (
+        for {
+          jsonObj      <- filters.asObject.toList
+          (key, value) <- jsonObj.toMap.toList if !value.isNull
+        } yield Json.obj("match" -> Json.obj(key -> value))
+      ).asJson
+    }
 
   object Deployments {
 
     def create(deployment: Deployment): Reader[JestClient, Identified[Deployment]] =
       executeAndRefresh(_create(deployment))
 
-    def search(
-        teamQuery: Option[String],
-        serviceQuery: Option[String],
-        buildIdQuery: Option[String],
-        page: Int
-    ): Reader[JestClient, Page[Identified[Deployment]]] = Reader { jest =>
-      val filters = Seq(
-        teamQuery.map(x => s"""{ "match": { "team": "$x" } }"""),
-        serviceQuery.map(x => s"""{ "match": { "service": "$x" } }"""),
-        buildIdQuery.map(x => s"""{ "match": { "buildId": "$x" } }""")
-      ).flatten
-      val query =
-        s"""{
-           |  "from": ${pageToOffset(page)},
-           |  "size": $PageSize,
-           |  "query": {
-           |    "bool": {
-           |      "must": { "match_all": {} },
-           |      "filter": {
-           |        "bool": {
-           |          "must": [
-           |            ${filters.mkString(", ")}
-           |          ]
+    def search(filters: SearchFilters, page: Int): Reader[JestClient, Page[Identified[Deployment]]] =
+      Reader { jest =>
+        val query =
+          s"""{
+             |  "from": ${pageToOffset(page)},
+             |  "size": $PageSize,
+             |  "query": {
+             |    "bool": {
+             |      "must": { "match_all": {} },
+             |      "filter": {
+             |        "bool": {
+             |          "must": ${filters.asJson.noSpaces}
            |        }
-           |      }
-           |    }
-           |  }
-           |}""".stripMargin
-      val action = new Search.Builder(query)
-        .addIndex(IndexName)
-        .addType(Types.Deployment)
-        .addSort(new Sort("timestamp", Sorting.DESC))
-        .build()
-      val result = jest.execute(action)
-      val items = result
-        .getHits(classOf[JsonElement])
-        .asScala
-        .flatMap(hit => parseHit(hit.source, hit.id))
-      Page(items, page, result.getTotal.toInt)
-    }
+             |      }
+             |    }
+             |  }
+             |}""".stripMargin
+        val action = new Search.Builder(query)
+          .addIndex(IndexName)
+          .addType(Types.Deployment)
+          .addSort(new Sort("timestamp", Sorting.DESC))
+          .build()
+        val result = jest.execute(action)
+        val items = result
+          .getHits(classOf[JsonElement])
+          .asScala
+          .flatMap(hit => parseHit(hit.source, hit.id))
+        Page(items, page, result.getTotal.toInt)
+      }
 
     def listServices(deployedInLastNDays: Int): Reader[JestClient, Seq[Service]] = Reader { jest =>
       val query =
@@ -145,30 +145,34 @@ object ES {
 
     def delete(id: String): Reader[JestClient, Either[String, Unit]] = executeAndRefresh(_delete(id))
 
-    private def _create(deployment: Deployment) = Reader[JestClient, Identified[Deployment]] { jest =>
-      val linksList = deployment.links.map { link =>
-        Map(
-          "title" -> link.title,
-          "url"   -> link.url
-        ).asJava
-      }.asJava
-      val map = Map(
-        "team"      -> deployment.team,
-        "service"   -> deployment.service,
-        "buildId"   -> deployment.buildId,
-        "timestamp" -> deployment.timestamp.toString,
-        "links"     -> linksList
-      ) ++
-        deployment.note.map("note" -> _)
+    private def _create(deployment: Deployment): Reader[JestClient, Identified[Deployment]] =
+      Reader[JestClient, Identified[Deployment]] { jest =>
+        val linksList = deployment.links.map { link =>
+          Map(
+            "title" -> link.title,
+            "url"   -> link.url
+          ).asJava
+        }.asJava
+        val map = Map(
+          "team"      -> deployment.team,
+          "service"   -> deployment.service,
+          "buildId"   -> deployment.buildId,
+          "timestamp" -> deployment.timestamp.toString,
+          "links"     -> linksList
+        ) ++
+          deployment.note.map("note"                 -> _) ++
+          deployment.environment.map("environment"   -> _.value) ++
+          deployment.businessArea.map("businessArea" -> _) ++
+          deployment.gitSha.map("gitSha"             -> _.value)
 
-      val action = new Index.Builder(map.asJava)
-        .index(IndexName)
-        .`type`(Types.Deployment)
-        .build()
-      val esResult = jest.execute(action)
-      val id       = esResult.getId
-      Identified(id, deployment)
-    }
+        val action = new Index.Builder(map.asJava)
+          .index(IndexName)
+          .`type`(Types.Deployment)
+          .build()
+        val esResult = jest.execute(action)
+        val id       = esResult.getId
+        Identified(id, deployment)
+      }
 
     private def parseHit(jsonElement: JsonElement, id: String): Option[Identified[Deployment]] = {
       decode[Deployment](jsonElement.toString)
@@ -177,18 +181,18 @@ object ES {
         .toOption
     }
 
-    private def _delete(id: String) = Reader[JestClient, Either[String, Unit]] { jest =>
-      val action = new Delete.Builder(id)
-        .index(IndexName)
-        .`type`(Types.Deployment)
-        .build()
-      val result = jest.execute(action)
-      if (result.isSucceeded)
-        Right(())
-      else
-        Left(result.getErrorMessage)
-    }
-
+    private def _delete(id: String): Reader[JestClient, Either[String, Unit]] =
+      Reader[JestClient, Either[String, Unit]] { jest =>
+        val action = new Delete.Builder(id)
+          .index(IndexName)
+          .`type`(Types.Deployment)
+          .build()
+        val result = jest.execute(action)
+        if (result.isSucceeded)
+          Right(())
+        else
+          Left(result.getErrorMessage)
+      }
   }
 
   object ApiKeys {
@@ -196,8 +200,8 @@ object ES {
     def create(key: String, description: Option[String], createdBy: String): Reader[JestClient, ApiKey] =
       executeAndRefresh(_create(key, description, createdBy))
 
-    private def _create(key: String, description: Option[String], createdBy: String) = Reader[JestClient, ApiKey] {
-      jest =>
+    private def _create(key: String, description: Option[String], createdBy: String): Reader[JestClient, ApiKey] =
+      Reader[JestClient, ApiKey] { jest =>
         val createdAt = OffsetDateTime.now()
         val map = Map(
           "key"                            -> key,
@@ -212,7 +216,7 @@ object ES {
         val result = jest.execute(action)
         val id     = result.getId
         ApiKey(id, key, description, createdAt, createdBy, active = true, lastUsed = None)
-    }
+      }
 
     def findByKey(key: String): Reader[JestClient, Option[ApiKey]] = Reader { jest =>
       val query =

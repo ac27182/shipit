@@ -3,7 +3,7 @@ package datadog
 import java.time.OffsetDateTime
 
 import io.circe.parser._
-import models.{Deployment, Link}
+import models.{Deployment, Environment, GitSha, Link}
 import org.scalatest._
 import play.api.libs.json.Json
 import org.scalatest.flatspec.AnyFlatSpec
@@ -17,6 +17,9 @@ class DatadogSpec extends AnyFlatSpec with Matchers with OptionValues {
       service = "my lovely service",
       buildId = "123",
       timestamp = OffsetDateTime.now,
+      environment = Some(Environment.Nonprod),
+      businessArea = Some("OVO Retail"),
+      gitSha = Some(GitSha("abcd1234")),
       links = Seq(
         Link("PR", "https://github.com/pr"),
         Link("CI", "https://circleci.com/build/123")
@@ -34,8 +37,11 @@ class DatadogSpec extends AnyFlatSpec with Matchers with OptionValues {
         | "tags": [
         |   "shipit:deployment",
         |   "team:Team America",
-        |   "service:my lovely service"
-        |  ]
+        |   "service:my lovely service",
+        |   "business_area:OVO Retail",
+        |   "git_sha:abcd1234",
+        |   "env:uat"
+        | ]
         |}
       """.stripMargin
     ).right.get
